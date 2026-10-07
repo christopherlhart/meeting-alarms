@@ -10,17 +10,25 @@ private func chromeUserDataDirectory(info: [String: Any]) -> URL? {
 
 // Chrome web-app shims ignore HTTP URLs sent through Launch Services. This
 // adapter is used only for a web app the user explicitly chose in Settings.
-func chromeWebAppConfiguration(info: [String: Any], meetingURL: URL) -> NSWorkspace.OpenConfiguration? {
+func chromeWebAppConfiguration(info: [String: Any], meetingURL: URL,
+                               profilePath: String? = nil) -> NSWorkspace.OpenConfiguration? {
     guard let appID = info["CrAppModeShortcutID"] as? String, !appID.isEmpty else { return nil }
     var arguments = [
         "--app-id=\(appID)",
         "--app-launch-url-for-shortcuts-menu-item=\(meetingURL.absoluteString)",
     ]
-    if let userData = chromeUserDataDirectory(info: info) {
-        arguments.append("--user-data-dir=\(userData.path)")
-    }
-    if let profile = info["CrAppModeProfileDir"] as? String, !profile.isEmpty {
-        arguments.append("--profile-directory=\(profile)")
+    if let profilePath {
+        guard isChromeProfileDirectory(profilePath) else { return nil }
+        let profile = URL(fileURLWithPath: profilePath).standardizedFileURL
+        arguments.append("--user-data-dir=\(profile.deletingLastPathComponent().path)")
+        arguments.append("--profile-directory=\(profile.lastPathComponent)")
+    } else {
+        if let userData = chromeUserDataDirectory(info: info) {
+            arguments.append("--user-data-dir=\(userData.path)")
+        }
+        if let profile = info["CrAppModeProfileDir"] as? String, !profile.isEmpty {
+            arguments.append("--profile-directory=\(profile)")
+        }
     }
     let configuration = NSWorkspace.OpenConfiguration()
     configuration.arguments = arguments
@@ -44,13 +52,19 @@ func chromeWebAppBrowserID(info: [String: Any]) -> String? {
     return browserID
 }
 
-private func openChosenMeetingApp(_ url: URL, in app: URL, completion: @escaping (Bool) -> Void) {
+func isChromeWebApp(at app: URL) -> Bool {
+    chromeWebAppBrowserID(info: appInfo(at: app) ?? [:]) != nil
+}
+
+private func openChosenMeetingApp(_ url: URL, in app: URL, profilePath: String?,
+                                  completion: @escaping (Bool) -> Void) {
     let info = appInfo(at: app) ?? [:]
     let didOpen: (NSRunningApplication?, Error?) -> Void = { runningApp, error in
         DispatchQueue.main.async { completion(runningApp != nil && error == nil) }
     }
     if let browserID = chromeWebAppBrowserID(info: info) {
-        guard let configuration = chromeWebAppConfiguration(info: info, meetingURL: url),
+        guard let configuration = chromeWebAppConfiguration(info: info, meetingURL: url,
+                                                            profilePath: profilePath),
               let chrome = NSWorkspace.shared.urlForApplication(withBundleIdentifier: browserID)
         else {
             completion(false)
@@ -68,8 +82,8 @@ private func openChosenMeetingApp(_ url: URL, in app: URL, completion: @escaping
 struct MeetingLinkOpener {
     var preferences = MeetingLinkPreferences.load()
     var openDefault: (URL) -> Void = { _ = NSWorkspace.shared.open($0) }
-    var openInApplication: (URL, URL, @escaping (Bool) -> Void) -> Void = {
-        openChosenMeetingApp($0, in: $1, completion: $2)
+    var openInApplication: (URL, URL, String?, @escaping (Bool) -> Void) -> Void = {
+        openChosenMeetingApp($0, in: $1, profilePath: $2, completion: $3)
     }
 
     /// Completes after handing off the URL, so the alarm can exit without
@@ -80,7 +94,7 @@ struct MeetingLinkOpener {
             completion()
             return
         }
-        openInApplication(url, app) { opened in
+        openInApplication(url, app, preferences.chromeProfilePath(for: url)) { opened in
             if !opened { openDefault(url) }
             completion()
         }

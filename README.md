@@ -143,9 +143,17 @@ Choices save immediately and apply to the next Join click, including the current
 alarm. If a chosen app is removed or fails to launch, the original URL goes to
 your Mac's default handler. Selecting **macOS default** removes that override.
 
-Chrome web apps shared across profiles use Chrome's profile selection when the
-saved app does not name a specific profile, so they may open in another account.
-Meeting Alarm does not read Chrome's private profile preferences.
+For a Chrome web app, **Choose profile…** pins Join to a Chrome profile. Switch
+to the desired profile in Chrome, open `chrome://version`, then copy **Profile
+Path** into the settings dialog. The web app must be installed in that profile;
+sign in to your meeting account there. A Chrome profile can contain several
+Google accounts, so check the account shown in Meet before joining.
+
+**Chrome chooses profile** uses the profile recorded in the app bundle, or lets
+Chrome choose when the app is shared. Changing the chosen app clears its pinned
+profile. If a pinned profile folder is unavailable, the original URL goes to the
+Mac's default handler. Meeting Alarm does not read Chrome's private profile
+preferences.
 
 `meeting-alarm install` writes a config file on first run at
 `~/Library/Application Support/meeting-alarm/config.json`, outside the install
@@ -171,6 +179,7 @@ while working on the code and is not committed.
 | `fallback_sound` | Sosumi | Used when `sound` is not on disk. With neither, the alarm still speaks and shows the window. |
 | `expected_source` | `null` | Account name that must still be present, so a signed-out account is reported rather than looking like an empty calendar. |
 | `meeting_apps` | `{}` | Optional app paths keyed by `google_meet`, `zoom`, `teams`, `webex` or `other`. For example, `{"google_meet": "/Users/you/Applications/Google Meet.app"}`. The settings window writes these and preserves other config keys. |
+| `meeting_app_profiles` | `{}` | Optional full Chrome Profile Paths keyed by the same service names as `meeting_apps`. Used only for explicitly selected Chrome web apps. Find a path in `chrome://version`, for example `/Users/you/Library/Application Support/Google/Chrome/Profile 2`. |
 | `poll_seconds` | `60` | Seconds between calendar checks. Rounds to whole minutes. |
 
 To fill in `include_calendars` or `expected_source`, list what EventKit sees:

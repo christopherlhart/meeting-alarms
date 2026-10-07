@@ -10,5 +10,6 @@
   "fallback_sound": "/System/Library/Sounds/Sosumi.aiff",
   "include_calendars": [],
   "expected_source": null,
-  "meeting_apps": {}
+  "meeting_apps": {},
+  "meeting_app_profiles": {}
 }

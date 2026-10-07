@@ -387,7 +387,7 @@ var joinCompleted = false
 let defaultOpener = MeetingLinkOpener(
     preferences: MeetingLinkPreferences(),
     openDefault: { defaultLinks.append($0) },
-    openInApplication: { _, _, _ in failures.append("an unset preference must not launch a saved app") }
+    openInApplication: { _, _, _, _ in failures.append("an unset preference must not launch a saved app") }
 )
 defaultOpener.open(meetLink) { joinCompleted = true }
 check(defaultLinks == [meetLink] && joinCompleted,
@@ -395,7 +395,7 @@ check(defaultLinks == [meetLink] && joinCompleted,
 let linkOpener = MeetingLinkOpener(
     preferences: savedPreferences,
     openDefault: { defaultLinks.append($0) },
-    openInApplication: { link, app, completion in
+    openInApplication: { link, app, _, completion in
         appLinks.append(link)
         selectedApps.append(app)
         pendingOpen = completion
@@ -416,7 +416,7 @@ check(defaultLinks == [meetLink] && joinCompleted, "a failed chosen app hands th
 let missingAppPreferences = MeetingLinkPreferences(applications: ["google_meet": "/missing/Meet.app"])
 let missingAppOpener = MeetingLinkOpener(preferences: missingAppPreferences,
     openDefault: { defaultLinks.append($0) },
-    openInApplication: { _, _, _ in failures.append("a removed app must not launch") })
+    openInApplication: { _, _, _, _ in failures.append("a removed app must not launch") })
 missingAppOpener.open(meetLink) {}
 equal(defaultLinks.count, 2, "a removed chosen app falls back to macOS")
 linkOpener.open(zoomLink) {}
@@ -453,6 +453,72 @@ equal(chromeWebAppConfiguration(info: profiledChromeInfo, meetingURL: meetLink)?
     "--user-data-dir=/Users/test/Library/Application Support/Google/Chrome",
     "--profile-directory=Profile 2",
 ], "a chosen Chrome app retains the user data directory and profile recorded by its bundle")
+let workProfile = appFixtures.appendingPathComponent("Work Chrome/Profile 8")
+try! FileManager.default.createDirectory(at: workProfile, withIntermediateDirectories: true)
+try! MeetingLinkPreferences.setChromeProfile(workProfile, for: .zoom, at: settingsPath)
+let pinnedPreferences = MeetingLinkPreferences.load(at: settingsPath)
+equal(pinnedPreferences.chromeProfilePath(for: zoomLink), workProfile.path,
+      "a chosen profile survives saving and reloading")
+check(pinnedPreferences.chromeProfilePath(for: meetLink) == nil,
+      "a profile choice applies only to its meeting service")
+let profileOpener = MeetingLinkOpener(preferences: pinnedPreferences,
+    openDefault: { _ in failures.append("an available pinned app must launch") },
+    openInApplication: { link, app, profile, completion in
+        equal(link, zoomLink, "the pinned app still receives the original URL")
+        equal(app.path, chromeApp.path, "a profile does not change the selected app")
+        equal(profile, workProfile.path, "Join forwards the selected profile to the app launcher")
+        completion(true)
+    })
+profileOpener.open(zoomLink) {}
+equal(chromeWebAppConfiguration(info: profiledChromeInfo, meetingURL: meetLink,
+                               profilePath: workProfile.path)?.arguments, [
+    "--app-id=saved-meet-app-id",
+    "--app-launch-url-for-shortcuts-menu-item=https://meet.google.com/abc-defg-hij?authuser=1#join",
+    "--user-data-dir=\(workProfile.deletingLastPathComponent().path)",
+    "--profile-directory=Profile 8",
+], "an explicit profile overrides a shared shim or its recorded profile and user data root")
+for path in ["relative/Profile 8", appFixtures.appendingPathComponent("Missing profile").path,
+             settingsPath.path, "/"] {
+    check(chromeWebAppConfiguration(info: chromeInfo, meetingURL: meetLink,
+                                   profilePath: path) == nil,
+          "invalid pinned profiles cannot be passed to Chrome: \(path)")
+}
+try! MeetingLinkPreferences.setApplication(chromeApp, for: .zoom, at: settingsPath)
+equal(MeetingLinkPreferences.load(at: settingsPath).chromeProfilePath(for: zoomLink), workProfile.path,
+      "reselecting the same app retains its profile")
+try! MeetingLinkPreferences.setChromeProfile(workProfile, for: .googleMeet, at: settingsPath)
+try! MeetingLinkPreferences.setApplication(safariApp, for: .zoom, at: settingsPath)
+check(MeetingLinkPreferences.load(at: settingsPath).chromeProfilePath(for: zoomLink) == nil,
+      "changing an app clears the profile belonging to the previous app")
+equal(MeetingLinkPreferences.load(at: settingsPath).chromeProfilePath(for: meetLink), workProfile.path,
+      "changing another app preserves the Meet profile")
+try! MeetingLinkPreferences.setChromeProfile(nil, for: .googleMeet, at: settingsPath)
+check(MeetingLinkPreferences.load(at: settingsPath).chromeProfilePath(for: meetLink) == nil,
+      "Chrome chooses profile removes the explicit profile selection")
+equal(MeetingLinkPreferences.load(at: settingsPath).application(for: zoomLink)?.path, safariApp.path,
+      "resetting a profile retains app selections")
+var refusedMissingProfile = false
+do {
+    try MeetingLinkPreferences.setChromeProfile(appFixtures.appendingPathComponent("Missing"),
+                                                for: .googleMeet, at: settingsPath)
+} catch { refusedMissingProfile = true }
+check(refusedMissingProfile, "settings reject a missing profile without saving it")
+let invalidProfileSettings = appFixtures.appendingPathComponent("bad-profiles.json")
+let invalidProfileJSON = #"{"meeting_apps":{},"meeting_app_profiles":false,"volume":31}"#
+try! Data(invalidProfileJSON.utf8).write(to: invalidProfileSettings)
+var refusedBadProfiles = false
+do {
+    try MeetingLinkPreferences.setChromeProfile(workProfile, for: .googleMeet, at: invalidProfileSettings)
+} catch { refusedBadProfiles = true }
+check(refusedBadProfiles, "invalid profile settings are reported instead of overwritten")
+equal(try! String(contentsOf: invalidProfileSettings, encoding: .utf8), invalidProfileJSON,
+      "a failed profile save preserves the complete original config")
+let profileJSON = try! JSONSerialization.jsonObject(with: Data(contentsOf: settingsPath)) as! [String: Any]
+equal(profileJSON["volume"] as? Int, 42, "profile settings preserve alarm settings")
+check((profileJSON["future_key"] as? [String: Bool])?["enabled"] == true,
+      "profile settings preserve unknown config keys")
+check(isChromeWebApp(at: chromeApp), "the profile selector supports Chrome web apps")
+check(!isChromeWebApp(at: safariApp), "Safari apps do not use Chrome profile settings")
 var missingID = chromeInfo
 missingID.removeValue(forKey: "CrAppModeShortcutID")
 check(chromeWebAppConfiguration(info: missingID, meetingURL: meetLink) == nil,

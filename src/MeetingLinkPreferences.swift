@@ -30,6 +30,7 @@ enum MeetingService: String, CaseIterable {
 
 struct MeetingLinkPreferences {
     var applications: [String: String] = [:]
+    var chromeProfiles: [String: String] = [:]
 
     static var configURL: URL {
         Paths.configPath ?? Paths.stateDir.appendingPathComponent("config.json")
@@ -37,15 +38,46 @@ struct MeetingLinkPreferences {
 
     static func load(at path: URL = configURL) -> MeetingLinkPreferences {
         guard let data = try? Data(contentsOf: path),
-              let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let apps = raw["meeting_apps"] as? [String: Any] else {
+              let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             return MeetingLinkPreferences()
         }
-        return MeetingLinkPreferences(applications: apps.compactMapValues { $0 as? String })
+        return MeetingLinkPreferences(
+            applications: (raw["meeting_apps"] as? [String: Any] ?? [:]).compactMapValues { $0 as? String },
+            chromeProfiles: (raw["meeting_app_profiles"] as? [String: Any] ?? [:]).compactMapValues { $0 as? String }
+        )
     }
 
     static func setApplication(_ app: URL?, for service: MeetingService,
                                at path: URL = configURL) throws {
+        try updateConfig(at: path) { raw in
+            var apps = raw["meeting_apps"] as? [String: Any] ?? [:]
+            if apps[service.rawValue] as? String != app?.path {
+                var profiles = raw["meeting_app_profiles"] as? [String: Any] ?? [:]
+                profiles.removeValue(forKey: service.rawValue)
+                raw["meeting_app_profiles"] = profiles
+            }
+            apps[service.rawValue] = app?.path
+            raw["meeting_apps"] = apps
+        }
+    }
+
+    static func setChromeProfile(_ profile: URL?, for service: MeetingService,
+                                 at path: URL = configURL) throws {
+        if let profile, !isChromeProfileDirectory(profile.path) {
+            throw MeetingLinkSettingsError.invalidProfile
+        }
+        try updateConfig(at: path) { raw in
+            var profiles = raw["meeting_app_profiles"] as? [String: Any] ?? [:]
+            profiles[service.rawValue] = profile?.standardizedFileURL.path
+            raw["meeting_app_profiles"] = profiles
+        }
+    }
+
+    func chromeProfilePath(for url: URL) -> String? {
+        chromeProfiles[MeetingService.forURL(url).rawValue]
+    }
+
+    private static func updateConfig(at path: URL, update: (inout [String: Any]) -> Void) throws {
         var raw: [String: Any] = [:]
         if FileManager.default.fileExists(atPath: path.path) {
             let data = try Data(contentsOf: path)
@@ -54,12 +86,12 @@ struct MeetingLinkPreferences {
             }
             raw = existing
         }
-        if let existing = raw["meeting_apps"], !(existing is [String: Any]) {
-            throw MeetingLinkSettingsError.invalidConfig
+        for key in ["meeting_apps", "meeting_app_profiles"] {
+            if let existing = raw[key], !(existing is [String: Any]) {
+                throw MeetingLinkSettingsError.invalidConfig
+            }
         }
-        var apps = raw["meeting_apps"] as? [String: Any] ?? [:]
-        apps[service.rawValue] = app?.path
-        raw["meeting_apps"] = apps
+        update(&raw)
         let data = try JSONSerialization.data(withJSONObject: raw, options: [.prettyPrinted, .sortedKeys])
         try FileManager.default.createDirectory(at: path.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
@@ -77,10 +109,24 @@ struct MeetingLinkPreferences {
     }
 }
 
+func isChromeProfileDirectory(_ path: String) -> Bool {
+    guard path.hasPrefix("/"), !path.contains("\0") else { return false }
+    let profile = URL(fileURLWithPath: path).standardizedFileURL
+    guard profile.pathComponents.count > 2 else { return false }
+    var directory: ObjCBool = false
+    return FileManager.default.fileExists(atPath: profile.path, isDirectory: &directory)
+        && directory.boolValue
+}
+
 enum MeetingLinkSettingsError: LocalizedError {
-    case invalidConfig
+    case invalidConfig, invalidProfile
 
     var errorDescription: String? {
-        "The config file is not a JSON object with valid meeting_apps settings. Fix it before saving."
+        switch self {
+        case .invalidConfig:
+            return "The config file is not a JSON object with valid meeting app settings. Fix it before saving."
+        case .invalidProfile:
+            return "Paste the full Profile Path from chrome://version in your chosen Chrome profile. That folder must exist on this Mac."
+        }
     }
 }
