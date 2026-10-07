@@ -11,8 +11,9 @@ import Foundation
 //   status    Poller health, recent alarms, and upcoming candidates.
 //   calendars Calendar titles and account names EventKit can see.
 //   settings  Choose apps for meeting links.
+//   menubar   Show the persistent menu bar health indicator.
 //   watchdog  Warn if the poller has not succeeded recently.
-//   install   Write and load both LaunchAgents for wherever this binary is.
+//   install   Write and load the LaunchAgents for wherever this binary is.
 //   uninstall Unload and remove them.
 
 let usage = """
@@ -24,6 +25,7 @@ usage: meeting-alarm <command> [options]
   status [--events-file PATH]
   calendars
   settings
+  menubar
   watchdog [--max-age SECONDS] [--wait SECONDS]
   install
   uninstall
@@ -111,6 +113,13 @@ case "settings":
     let settings = MeetingLinkSettingsWindow(onClose: { exit(0) })
     settings.show()
     withExtendedLifetime(settings) { app.run() }
+
+case "menubar":
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    let menuBar = MeetingAlarmMenuBar()
+    app.delegate = menuBar
+    withExtendedLifetime(menuBar) { app.run() }
 
 case "install":
     exit(installAgents())

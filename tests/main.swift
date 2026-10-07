@@ -203,21 +203,23 @@ check(runner.contains("BIN='/opt/homebrew/opt/meeting-alarm/libexec/bin'"),
 check(runner.contains("[ -x \"$BIN\" ] && exec \"$BIN\" \"$@\""),
       "the runner execs the binary when it is there")
 check(runner.contains("LABEL='homebrew.mxcl.meeting-alarm'"), "the runner quotes the label")
-check(runner.contains("$AGENTS/$LABEL.plist") && runner.contains("$AGENTS/$LABEL.watchdog.plist"),
-      "the runner removes both plists")
+check(runner.contains("$AGENTS/$LABEL.plist") && runner.contains("$AGENTS/$LABEL.watchdog.plist")
+      && runner.contains("$AGENTS/$LABEL.menubar.plist"),
+      "the runner removes all three plists")
 check(runner.contains("\"$0\""), "the runner removes itself")
 check(runner.components(separatedBy: "exec \"$BIN\"").count - 1 == 2
       && runner.range(of: "sleep 5")!.lowerBound < runner.range(of: "rm -f")!.lowerBound,
       "the runner looks for the binary twice before removing anything")
 check(runner.range(of: "rm -f")!.lowerBound < runner.range(of: "launchctl bootout")!.lowerBound,
       "files go before bootout, which kills the script")
-// Booting out our own job kills the script, so the other job has to go first
-// or it is left loaded with no plist behind it.
+// Booting out our own job kills the script, so the other jobs must go first.
 check(runner.range(of: "$OTHER")!.lowerBound < runner.range(of: "$SELF\"")!.lowerBound,
       "the other job is booted out before this one")
 check(runner.contains("watchdog) SELF=\"$LABEL.watchdog\"; OTHER=\"$LABEL\"") ||
       runner.contains("watchdog) SELF=\"$LABEL.watchdog\""),
       "the script knows which job it is running as")
+check(runner.contains("menubar)  SELF=\"$LABEL.menubar\""),
+      "the menu bar runner also unloads itself last")
 
 // MARK: - Poll schedule
 // StartCalendarInterval, because launchd can hold StartInterval jobs forever.
@@ -230,6 +232,24 @@ equal((pollSchedule(pollSeconds: 300) as? [[String: Int]])?.map { $0["Minute"]! 
       [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55], "five minutes is every fifth minute")
 equal((pollSchedule(pollSeconds: 130) as? [[String: Int]])?.count ?? 0, 30,
       "a little over two minutes rounds to every second minute")
+
+let agentDefinitions = Agents.definitions(executable: URL(fileURLWithPath: "/test/meeting-alarm"), cfg: cfg)
+equal(Set(agentDefinitions.map { $0.label }),
+      Set([Agents.pollerLabel, Agents.watchdogLabel, Agents.menuBarLabel]),
+      "installation includes the poller, watchdog and menu bar")
+let menuBarAgent = agentDefinitions.first { $0.label == Agents.menuBarLabel }!.plist
+equal(menuBarAgent["ProgramArguments"] as? [String], [Agents.runnerPath.path, "menubar"],
+      "the menu bar launches the resident command through the shared runner")
+check(menuBarAgent["RunAtLoad"] as? Bool == true && menuBarAgent["KeepAlive"] as? Bool == true,
+      "the icon starts on login and is restarted if its process exits")
+check(menuBarAgent["StartCalendarInterval"] == nil,
+      "the resident menu bar is not launched on each calendar check")
+equal(menuBarAgent["LimitLoadToSessionType"] as? String, "Aqua",
+      "the menu bar starts only in a graphical login session")
+if Paths.label != "com.buether.meeting-alarm" {
+    equal((menuBarAgent["EnvironmentVariables"] as? [String: String])?["MEETING_ALARM_LABEL"],
+          Paths.label, "the menu bar checks the poller for its own install label")
+}
 
 // MARK: - Status report
 // status is the only place a user checks their setup, so config mistakes have

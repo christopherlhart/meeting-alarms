@@ -35,7 +35,8 @@ func helpText() -> String {
 
     CHECK YOUR SETUP
       Run `meeting-alarm status` after installing and after any config change.
-      Nothing pops up to warn you; this listing is the check. It shows:
+      The menu bar bell shows recent calendar checks; a badge means attention
+      is needed. Hover for status or click for Settings. The listing shows:
         POLLER      "running" and a recent poll, or what is wrong in CAPITALS
         CALENDARS   every calendar: watched, not watched, or never rings,
                     plus NO MATCH for an include_calendars name that is wrong
@@ -48,9 +49,10 @@ func helpText() -> String {
       status              the check above
       test                ring a test alarm through the real path
       calendars           calendar titles and account names, for the settings
-      settings            choose apps for meeting links
+      settings            choose apps and Chrome profiles for meeting links
+      menubar             show the persistent menu bar health indicator
       poll --dry-run      what this minute's poll would do, ringing nothing
-      install             write and load the two background jobs
+      install             write and load the three background jobs
       uninstall           remove them; config, history and logs stay
       help                this
 

@@ -124,7 +124,7 @@ meeting-alarm poll --dry-run        what this minute's poll would do, without ri
 meeting-alarm test                  ring a test alarm
 meeting-alarm calendars             calendar titles and account names EventKit can see
 meeting-alarm settings              choose apps for meeting links
-meeting-alarm install               write and load the two LaunchAgents for wherever this binary lives
+meeting-alarm install               write and load the three LaunchAgents for wherever this binary lives
 meeting-alarm uninstall             unload and remove them; logs and history stay
 meeting-alarm help                  most of this README, in the terminal
 ./install.sh                        in a checkout: rebuild, then install
@@ -132,6 +132,18 @@ meeting-alarm help                  most of this README, in the terminal
 ```
 
 `poll.log`, `alarm.log` and `launchd.log` are in `~/Library/Logs/meeting-alarm/`.
+
+## Menu bar
+
+Installing starts a small bell in the menu bar and brings it back at login.
+A plain bell means the poller is loaded and calendar checks are recent. A badged
+bell means checks have failed, stalled, or the poller is not loaded. Hover for
+the current status, or click it to refresh status and open Settings. It checks
+the same health information as `meeting-alarm status`, updating every 30 seconds
+and when the Mac wakes. The icon does not read calendars or play an alarm.
+
+Existing installs need `meeting-alarm install` once to add the menu bar job.
+`meeting-alarm uninstall` removes it with the other background jobs.
 
 ## Settings
 
@@ -260,11 +272,11 @@ Two meetings a minute apart put two alarm windows on screen. Only the one
 holding `alarm.lock` raises the volume and loops the sound, so they do not
 fight over the output device.
 
-Both agents run `run-agent.sh`, written into
+All three agents run `run-agent.sh`, written into
 `~/Library/Application Support/meeting-alarm/` at install time. It hands off to
 the binary with `exec`, so launchd's job process ends up being the signed
 bundle. If the binary is ever gone — an uninstall, a deleted checkout — the
-script instead unloads both agents, deletes both plists and deletes itself,
+script instead unloads all three agents, deletes their plists and deletes itself,
 rather than leaving launchd firing every minute at a path that no longer
 exists. Your config, alarm history and logs are left alone.
 
